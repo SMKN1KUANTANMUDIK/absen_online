@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sigma Presensi - Online</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+    <script defer src="https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/dist/face-api.min.js"></script>
+    <style>
+        :root { --primary-color: #2c3e50; --accent-color: #3498db; }
+        body { background-color: #f0f2f5; font-family: 'Inter', sans-serif; }
+        .main-card { border: none; border-radius: 20px; overflow: hidden; box-shadow: 0 10px 30px rgba(0,0,0,0.1); }
+        .camera-box { position: relative; width: 100%; background: #000; line-height: 0; }
+        video { width: 100%; height: auto; transform: scaleX(-1); }
+        .face-indicator { position: absolute; top: 15px; left: 15px; padding: 6px 12px; border-radius: 50px; font-size: 12px; font-weight: bold; z-index: 10; text-transform: uppercase; }
+        #loading-screen { position: fixed; inset: 0; background: white; display: flex; flex-direction: column; justify-content: center; align-items: center; z-index: 9999; }
+        .btn-absen { border-radius: 12px; padding: 15px; font-weight: 700; transition: all 0.3s; }
+        .btn-absen:disabled { opacity: 0.5; filter: grayscale(1); }
+    </style>
+</head>
+<body>
+
+<div id="loading-screen">
+    <div class="spinner-border text-primary mb-3" role="status"></div>
+    <p class="text-muted">Menyiapkan Kamera & Sistem...</p>
+</div>
+
+<div class="container py-4">
+    <div class="row justify-content-center">
+        <div class="col-md-5">
+            <div class="text-center mb-4">
+                <h2 class="fw-bold text-dark">SIGMA <span class="text-primary">PRESENSI</span></h2>
+                <p class="text-muted small">Pastikan wajah terlihat jelas di area kamera</p>
+            </div>
+
+            <div class="card main-card">
+                <div class="camera-box">
+                    <div id="faceLabel" class="face-indicator bg-danger text-white">Wajah Tidak Terdeteksi</div>
+                    <video id="video" autoplay muted playsinline></video>
+                </div>
+
+                <div class="card-body p-4">
+                    <div class="mb-3">
+                        <label class="form-label small fw-bold">Nomor Induk Pegawai (NIP)</label>
+                        <input type="text" id="nip" class="form-control form-control-lg" placeholder="Contoh: 19901010...">
+                    </div>
+
+                    <div id="extraNote" class="mb-3 d-none">
+                        <label class="form-label small fw-bold text-danger">Keterangan Luar Tilok</label>
+                        <textarea id="keterangan" class="form-control" rows="2" placeholder="Sebutkan alasan atau tugas luar..."></textarea>
+                    </div>
+
+                    <div class="row g-2">
+                        <div class="col-6">
+                            <button onclick="submitAbsen('Check In')" id="btnIn" class="btn btn-success btn-absen w-100" disabled>CHECK IN</button>
+                        </div>
+                        <div class="col-6">
+                            <button onclick="submitAbsen('Check Out')" id="btnOut" class="btn btn-primary btn-absen w-100" disabled>CHECK OUT</button>
+                        </div>
+                    </div>
+
+                    <div class="mt-4 pt-3 border-top">
+                        <div class="d-flex align-items-center text-muted">
+                            <div class="spinner-grow spinner-grow-sm me-2 text-warning" role="status"></div>
+                            <span id="locStatus" class="small">Mengunci sinyal GPS...</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    const G_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbyG-Cjpx5F0YksAayAj51uRVUfZwlLDK0Q5YVoHrgtNm2vMEwVKAk_9P_nCc6pq4BT15w/exec"; // GANTI INI
+    const video = document.getElementById('video');
+    const faceLabel = document.getElementById('faceLabel');
+    let userCoords = { lat: null, lng: null };
+    let faceOk = false;
+
+    // 1. Inisialisasi Deteksi Wajah
+    async function initSystem() {
+        try {
+            await faceapi.nets.tinyFaceDetector.loadFromUri('https://cdn.jsdelivr.net/gh/cstefanache/face-api.js-models@master/weights');
+            const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "user" } });
+            video.srcObject = stream;
+            document.getElementById('loading-screen').style.display = 'none';
+            trackLocation();
+            detectFace();
+        } catch (err) {
+            Swal.fire("Akses Ditolak", "Kamera dan Lokasi wajib diizinkan untuk absen.", "error");
+        }
+    }
+
+    // 2. Loop Deteksi Wajah (Tanpa Metrik/Biometrik)
+    async function detectFace() {
+        setInterval(async () => {
+            const detections = await faceapi.detectAllFaces(video, new faceapi.TinyFaceDetectorOptions());
+            if (detections.length > 0) {
+                faceLabel.innerText = "Siap Absen";
+                faceLabel.className = "face-indicator bg-success text-white";
+                faceOk = true;
+                updateButtonState(true);
+            } else {
+                faceLabel.innerText = "Wajah Tidak Terdeteksi";
+                faceLabel.className = "face-indicator bg-danger text-white";
+                faceOk = false;
+                updateButtonState(false);
+            }
+        }, 1000);
+    }
+
+    function updateButtonState(state) {
+        document.getElementById('btnIn').disabled = !state;
+        document.getElementById('btnOut').disabled = !state;
+    }
+
+    // 3. Tracking GPS
+    function trackLocation() {
+        if (navigator.geolocation) {
+            navigator.geolocation.watchPosition(p => {
+                userCoords.lat = p.coords.latitude;
+                userCoords.lng = p.coords.longitude;
+                document.getElementById('locStatus').innerText = "GPS Terkunci (Akurasi Baik)";
+                document.getElementById('extraNote').classList.remove('d-none'); // Selalu tampilkan input ket jika ingin fleksibel
+            }, null, { enableHighAccuracy: true });
+        }
+    }
+
+    // 4. Logika Kompresi Gambar (Output ~100-200 KB)
+    function captureAndCompress() {
+        const canvas = document.createElement('canvas');
+        const ctx = canvas.getContext('2d');
+        
+        // Resize: Maksimal lebar 800px (Sangat cukup untuk verifikasi wajah)
+        const maxWidth = 800;
+        const scale = maxWidth / video.videoWidth;
+        canvas.width = maxWidth;
+        canvas.height = video.videoHeight * scale;
+
+        // Gambar video ke canvas
+        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+        // Kompresi: Kualitas 0.7 (70%) menghasilkan file sekitar 80-150 KB
+        return canvas.toDataURL('image/jpeg', 0.7);
+    }
+
+    // 5. Kirim ke Backend
+    async function submitAbsen(tipe) {
+        const nip = document.getElementById('nip').value;
+        const ket = document.getElementById('keterangan').value;
+
+        if (!nip) return Swal.fire("NIP Kosong", "Masukkan NIP Anda", "warning");
+        if (!faceOk) return Swal.fire("Wajah?", "Wajah tidak terdeteksi kamera", "error");
+
+        Swal.fire({ title: 'Mengirim Data...', allowOutsideClick: false, didOpen: () => Swal.showLoading() });
+
+        const payload = {
+            nip: nip,
+            tipe: tipe,
+            lat: userCoords.lat,
+            lng: userCoords.lng,
+            keterangan: ket,
+            fotoBase64: captureAndCompress() // Foto sudah terkompresi di sini
+        };
+
+        try {
+            const res = await fetch(G_SCRIPT_URL, { method: 'POST', body: JSON.stringify(payload) });
+            const data = await res.json();
+
+            if (data.status === "success") {
+                Swal.fire("Berhasil", data.message, "success").then(() => location.reload());
+            } else {
+                Swal.fire("Gagal", data.message, "error");
+            }
+        } catch (e) {
+            Swal.fire("Error", "Gagal terhubung ke server. Cek koneksi internet.", "error");
+        }
+    }
+
+    window.onload = initSystem;
+</script>
+</body>
+</html>
