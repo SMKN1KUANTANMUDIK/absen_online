@@ -3,183 +3,175 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Sigma Presensi - Online</title>
+    <title>Presensi Online - Sigma</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
     <script defer src="https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/dist/face-api.min.js"></script>
     <style>
-        :root { --primary-color: #2c3e50; --accent-color: #3498db; }
-        body { background-color: #f0f2f5; font-family: 'Inter', sans-serif; }
-        .main-card { border: none; border-radius: 20px; overflow: hidden; box-shadow: 0 10px 30px rgba(0,0,0,0.1); }
-        .camera-box { position: relative; width: 100%; background: #000; line-height: 0; }
-        video { width: 100%; height: auto; transform: scaleX(-1); }
-        .face-indicator { position: absolute; top: 15px; left: 15px; padding: 6px 12px; border-radius: 50px; font-size: 12px; font-weight: bold; z-index: 10; text-transform: uppercase; }
+        :root { --bg-color: #f8f9fa; --primary: #0061f2; --danger: #e74a3b; --success: #1cc88a; }
+        body { background-color: var(--bg-color); font-family: 'Segoe UI', Roboto, sans-serif; }
+        
+        /* Header Style */
+        .app-header { background: white; padding: 15px; text-align: center; font-weight: 800; color: #333; border-bottom: 1px solid #ddd; margin-bottom: 20px; }
+        
+        /* Camera UI */
+        .camera-wrapper { position: relative; width: 100%; max-width: 500px; margin: 0 auto; border-radius: 15px; overflow: hidden; box-shadow: 0 4px 12px rgba(0,0,0,0.15); }
+        video { width: 100%; height: auto; background: #222; transform: scaleX(-1); }
+        
+        /* Floating Info Box (Like the image) */
+        .status-overlay { 
+            position: absolute; bottom: 15px; left: 15px; right: 15px;
+            background: rgba(231, 74, 59, 0.9); /* Default Danger */
+            color: white; padding: 10px 15px; border-radius: 10px; font-size: 0.85rem;
+        }
+        .status-overlay.in-range { background: rgba(28, 200, 138, 0.9); }
+
+        .form-section { max-width: 500px; margin: 20px auto; padding: 0 15px; }
+        .btn-submit { background: var(--primary); color: white; width: 100%; padding: 12px; border-radius: 10px; border: none; font-weight: bold; margin-top: 15px; }
+        
         #loading-screen { position: fixed; inset: 0; background: white; display: flex; flex-direction: column; justify-content: center; align-items: center; z-index: 9999; }
-        .btn-absen { border-radius: 12px; padding: 15px; font-weight: 700; transition: all 0.3s; }
-        .btn-absen:disabled { opacity: 0.5; filter: grayscale(1); }
     </style>
 </head>
 <body>
 
 <div id="loading-screen">
-    <div class="spinner-border text-primary mb-3" role="status"></div>
-    <p class="text-muted">Menyiapkan Kamera & Sistem...</p>
+    <div class="spinner-border text-primary mb-2"></div>
+    <p>Menyiapkan Sistem...</p>
 </div>
 
-<div class="container py-4">
-    <div class="row justify-content-center">
-        <div class="col-md-5">
-            <div class="text-center mb-4">
-                <h2 class="fw-bold text-dark">SIGMA <span class="text-primary">PRESENSI</span></h2>
-                <p class="text-muted small">Pastikan wajah terlihat jelas di area kamera</p>
-            </div>
+<div class="app-header text-uppercase">Presensi Online</div>
 
-            <div class="card main-card">
-                <div class="camera-box">
-                    <div id="faceLabel" class="face-indicator bg-danger text-white">Wajah Tidak Terdeteksi</div>
-                    <video id="video" autoplay muted playsinline></video>
-                </div>
-
-                <div class="card-body p-4">
-                    <div class="mb-3">
-                        <label class="form-label small fw-bold">Nomor Induk Pegawai (NIP)</label>
-                        <input type="text" id="nip" class="form-control form-control-lg" placeholder="Contoh: 19901010...">
-                    </div>
-
-                    <div id="extraNote" class="mb-3 d-none">
-                        <label class="form-label small fw-bold text-danger">Keterangan Luar Tilok</label>
-                        <textarea id="keterangan" class="form-control" rows="2" placeholder="Sebutkan alasan atau tugas luar..."></textarea>
-                    </div>
-
-                    <div class="row g-2">
-                        <div class="col-6">
-                            <button onclick="submitAbsen('Check In')" id="btnIn" class="btn btn-success btn-absen w-100" disabled>CHECK IN</button>
-                        </div>
-                        <div class="col-6">
-                            <button onclick="submitAbsen('Check Out')" id="btnOut" class="btn btn-primary btn-absen w-100" disabled>CHECK OUT</button>
-                        </div>
-                    </div>
-
-                    <div class="mt-4 pt-3 border-top">
-                        <div class="d-flex align-items-center text-muted">
-                            <div class="spinner-grow spinner-grow-sm me-2 text-warning" role="status"></div>
-                            <span id="locStatus" class="small">Mengunci sinyal GPS...</span>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
+<div class="camera-wrapper">
+    <video id="video" autoplay muted playsinline></video>
+    <div id="infoBox" class="status-overlay">
+        <div class="fw-bold" id="locTitle">Mencari Lokasi...</div>
+        <div id="locDetail">Koordinat: --, -- | Jarak: --</div>
     </div>
 </div>
 
-<script>
-    const G_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbyG-Cjpx5F0YksAayAj51uRVUfZwlLDK0Q5YVoHrgtNm2vMEwVKAk_9P_nCc6pq4BT15w/exec"; // GANTI INI
-    const video = document.getElementById('video');
-    const faceLabel = document.getElementById('faceLabel');
-    let userCoords = { lat: null, lng: null };
-    let faceOk = false;
+<div class="form-section">
+    <div class="mb-3">
+        <label class="form-label fw-bold">NIP / Nama Karyawan</label>
+        <input type="text" id="nip" class="form-control" placeholder="Input NIP atau Nama">
+    </div>
 
-    // 1. Inisialisasi Deteksi Wajah
-    async function initSystem() {
+    <div class="mb-3">
+        <label class="form-label fw-bold">Pilih Kehadiran</label>
+        <div class="d-flex gap-3">
+            <div class="form-check">
+                <input class="form-check-input" type="radio" name="tipe" id="checkin" value="Check In" checked>
+                <label class="form-check-label" for="checkin">Check In</label>
+            </div>
+            <div class="form-check">
+                <input class="form-check-input" type="radio" name="tipe" id="checkout" value="Check Out">
+                <label class="form-check-label" for="checkout">Check Out</label>
+            </div>
+        </div>
+    </div>
+
+    <div id="areaKeterangan" class="mb-3 d-none">
+        <label class="form-label fw-bold text-danger">Keterangan Luar Titik Lokasi</label>
+        <textarea id="keterangan" class="form-control" rows="2" placeholder="Alasan: Dinas Luar / Macet / Dll"></textarea>
+    </div>
+
+    <button onclick="kirimData()" id="btnKirim" class="btn-submit" disabled>KIRIM PRESENSI</button>
+    <p class="text-center text-muted small mt-3">Arahkan wajah ke kamera untuk mengaktifkan tombol</p>
+</div>
+
+<script>
+    const GAS_URL = "URL_WEB_APP_G_SCRIPT_ANDA"; // GANTI INI!
+    const video = document.getElementById('video');
+    const infoBox = document.getElementById('infoBox');
+    let userLoc = { lat: 0, lng: 0 };
+    let isFaceOk = false;
+
+    // Koordinat Kantor (untuk simulasi tampilan saja, perhitungan asli tetap di server)
+    const KANTOR = { lat: -0.867178, lng: 101.378106, radius: 20 }; 
+
+    async function init() {
         try {
             await faceapi.nets.tinyFaceDetector.loadFromUri('https://cdn.jsdelivr.net/gh/cstefanache/face-api.js-models@master/weights');
             const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "user" } });
             video.srcObject = stream;
             document.getElementById('loading-screen').style.display = 'none';
-            trackLocation();
-            detectFace();
-        } catch (err) {
-            Swal.fire("Akses Ditolak", "Kamera dan Lokasi wajib diizinkan untuk absen.", "error");
+            startTracking();
+            startFaceDetection();
+        } catch (e) {
+            alert("Gagal memuat kamera/lokasi. Pastikan HTTPS aktif.");
         }
     }
 
-    // 2. Loop Deteksi Wajah (Tanpa Metrik/Biometrik)
-    async function detectFace() {
+    function startFaceDetection() {
         setInterval(async () => {
-            const detections = await faceapi.detectAllFaces(video, new faceapi.TinyFaceDetectorOptions());
-            if (detections.length > 0) {
-                faceLabel.innerText = "Siap Absen";
-                faceLabel.className = "face-indicator bg-success text-white";
-                faceOk = true;
-                updateButtonState(true);
-            } else {
-                faceLabel.innerText = "Wajah Tidak Terdeteksi";
-                faceLabel.className = "face-indicator bg-danger text-white";
-                faceOk = false;
-                updateButtonState(false);
-            }
-        }, 1000);
+            const detect = await faceapi.detectAllFaces(video, new faceapi.TinyFaceDetectorOptions());
+            isFaceOk = detect.length > 0;
+            document.getElementById('btnKirim').disabled = !isFaceOk;
+        }, 800);
     }
 
-    function updateButtonState(state) {
-        document.getElementById('btnIn').disabled = !state;
-        document.getElementById('btnOut').disabled = !state;
+    function startTracking() {
+        navigator.geolocation.watchPosition(pos => {
+            userLoc.lat = pos.coords.latitude;
+            userLoc.lng = pos.coords.longitude;
+            
+            // Hitung jarak kasar untuk UI
+            const dist = calcDist(userLoc.lat, userLoc.lng, KANTOR.lat, KANTOR.lng);
+            const isOut = dist > KANTOR.radius;
+
+            document.getElementById('locTitle').innerText = isOut ? "Berada di Luar Titik Lokasi" : "Berada di Titik Lokasi";
+            document.getElementById('locDetail').innerText = `${dist} Meter | ${userLoc.lat.toFixed(5)}, ${userLoc.lng.toFixed(5)}`;
+            
+            infoBox.className = isOut ? "status-overlay" : "status-overlay in-range";
+            document.getElementById('areaKeterangan').classList.toggle('d-none', !isOut);
+        });
     }
 
-    // 3. Tracking GPS
-    function trackLocation() {
-        if (navigator.geolocation) {
-            navigator.geolocation.watchPosition(p => {
-                userCoords.lat = p.coords.latitude;
-                userCoords.lng = p.coords.longitude;
-                document.getElementById('locStatus').innerText = "GPS Terkunci (Akurasi Baik)";
-                document.getElementById('extraNote').classList.remove('d-none'); // Selalu tampilkan input ket jika ingin fleksibel
-            }, null, { enableHighAccuracy: true });
-        }
-    }
-
-    // 4. Logika Kompresi Gambar (Output ~100-200 KB)
-    function captureAndCompress() {
+    // Fungsi Kompresi (Menjadi ~150kb)
+    function captureCompress() {
         const canvas = document.createElement('canvas');
+        canvas.width = 640; // Resize ke 640px (Cukup tajam untuk absen)
+        canvas.height = (video.videoHeight / video.videoWidth) * 640;
         const ctx = canvas.getContext('2d');
-        
-        // Resize: Maksimal lebar 800px (Sangat cukup untuk verifikasi wajah)
-        const maxWidth = 800;
-        const scale = maxWidth / video.videoWidth;
-        canvas.width = maxWidth;
-        canvas.height = video.videoHeight * scale;
-
-        // Gambar video ke canvas
         ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-
-        // Kompresi: Kualitas 0.7 (70%) menghasilkan file sekitar 80-150 KB
-        return canvas.toDataURL('image/jpeg', 0.7);
+        return canvas.toDataURL('image/jpeg', 0.6); // Kualitas 60%
     }
 
-    // 5. Kirim ke Backend
-    async function submitAbsen(tipe) {
+    async function kirimData() {
         const nip = document.getElementById('nip').value;
+        const tipe = document.querySelector('input[name="tipe"]:checked').value;
         const ket = document.getElementById('keterangan').value;
 
-        if (!nip) return Swal.fire("NIP Kosong", "Masukkan NIP Anda", "warning");
-        if (!faceOk) return Swal.fire("Wajah?", "Wajah tidak terdeteksi kamera", "error");
+        if(!nip) return Swal.fire("NIP?", "Isi nama/nip dulu", "warning");
 
-        Swal.fire({ title: 'Mengirim Data...', allowOutsideClick: false, didOpen: () => Swal.showLoading() });
+        Swal.fire({ title: 'Mengirim...', allowOutsideClick: false, didOpen: () => Swal.showLoading() });
 
         const payload = {
-            nip: nip,
-            tipe: tipe,
-            lat: userCoords.lat,
-            lng: userCoords.lng,
-            keterangan: ket,
-            fotoBase64: captureAndCompress() // Foto sudah terkompresi di sini
+            nip: nip, tipe: tipe, lat: userLoc.lat, lng: userLoc.lng,
+            keterangan: ket, fotoBase64: captureCompress()
         };
 
         try {
-            const res = await fetch(G_SCRIPT_URL, { method: 'POST', body: JSON.stringify(payload) });
-            const data = await res.json();
-
-            if (data.status === "success") {
-                Swal.fire("Berhasil", data.message, "success").then(() => location.reload());
+            const res = await fetch(GAS_URL, { method: 'POST', body: JSON.stringify(payload) });
+            const result = await res.json();
+            if(result.status === "success") {
+                Swal.fire("Berhasil", result.message, "success").then(() => location.reload());
             } else {
-                Swal.fire("Gagal", data.message, "error");
+                Swal.fire("Gagal", result.message, "error");
             }
         } catch (e) {
-            Swal.fire("Error", "Gagal terhubung ke server. Cek koneksi internet.", "error");
+            Swal.fire("Error", "Cek koneksi/URL Script", "error");
         }
     }
 
-    window.onload = initSystem;
+    function calcDist(lat1, lon1, lat2, lon2) {
+        const R = 6371e3;
+        const p1 = lat1 * Math.PI/180, p2 = lat2 * Math.PI/180;
+        const dp = (lat2-lat1) * Math.PI/180, dl = (lon2-lon1) * Math.PI/180;
+        const a = Math.sin(dp/2)**2 + Math.cos(p1)*Math.cos(p2)*Math.sin(dl/2)**2;
+        return Math.round(R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a)));
+    }
+
+    window.onload = init;
 </script>
 </body>
 </html>
